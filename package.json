@@ -20,7 +20,7 @@
         "node": ">=18.16.0"
     },
     "dependencies": {
-        "@whiskeysockets/baileys": "^6.7.12",
+        "baileys": "^6.7.16",
         "axios": "^1.7.9",
         "cors": "^2.8.5",
         "dotenv": "^16.4.7",
