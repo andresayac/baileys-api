@@ -5,7 +5,11 @@ const validate = (req, res, next) => {
     const errors = validationResult(req)
 
     if (!errors.isEmpty()) {
-        return response(res, 400, false, 'Please fill out all required input.')
+        const formattedErrors = errors.array().reduce((acc, error) => {
+            acc[error.path] = error.msg
+            return acc
+        }, {})
+        return response(res, 400, false, 'Please fill out all required input.', formattedErrors)
     }
 
     next()

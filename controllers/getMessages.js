@@ -21,9 +21,22 @@ const getMessages = async (req, res) => {
 
     try {
         const useCursor = 'before' in cursor ? cursor : null
-        const messages = await session.store.loadMessages(jidFormat, limit, useCursor)
+        const messages = await session.store.loadMessages(jidFormat, parseInt(limit), useCursor)
 
-        response(res, 200, true, '', messages)
+        // Determine if there are more messages
+        const hasMore = messages.length === parseInt(limit)
+        const nextCursor = hasMore && messages.length > 0
+            ? {
+                id: messages[messages.length - 1].key.id,
+                fromMe: messages[messages.length - 1].key.fromMe
+            }
+            : null
+
+        response(res, 200, true, '', {
+            messages,
+            nextCursor,
+            hasMore
+        })
     } catch {
         response(res, 500, false, 'Failed to load messages.')
     }

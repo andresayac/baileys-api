@@ -12,8 +12,16 @@ import {
 import response from './../response.js'
 import { compareAndFilter, fileExists, isUrlValid } from './../utils/functions.js'
 
-const getList = (req, res) => {
-    return response(res, 200, true, '', getChatList(res.locals.sessionId))
+const getList = async (req, res) => {
+    const { limit = 20, cursor = null } = req.query
+    const sessionId = res.locals.sessionId
+
+    try {
+        const result = await getChatList(sessionId, false, parseInt(limit), cursor)
+        return response(res, 200, true, '', result)
+    } catch (error) {
+        return response(res, 500, false, 'Failed to load chats.')
+    }
 }
 
 const send = async (req, res) => {
@@ -125,7 +133,7 @@ const forward = async (req, res) => {
     try {
         const messages = await session.store.loadMessages(remoteJid, 25, null)
 
-        
+
         const key = [...messages.values()].filter((element) => {
             return element.key.id === id
         })

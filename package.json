@@ -5,7 +5,16 @@
     "main": "app.js",
     "type": "module",
     "scripts": {
-        "start": "node ."
+        "dev": "nodemon .",
+        "start": "node .",
+        "db:migrate": "npx prisma migrate deploy",
+        "db:generate": "npx prisma generate",
+        "db:studio": "npx prisma studio",
+        "db:reset": "npx prisma migrate reset",
+        "lint": "eslint .",
+        "lint:fix": "eslint . --fix",
+        "format": "prettier --write .",
+        "format:check": "prettier --check ."
     },
     "repository": {
         "type": "git",
@@ -20,15 +29,18 @@
         "node": ">=18.16.0"
     },
     "dependencies": {
-        "baileys": "7.0.0-rc.6",
+        "@prisma/client": "^6.19.0",
         "axios": "^1.13.2",
+        "baileys": "7.0.0-rc.6",
         "cors": "^2.8.5",
         "dotenv": "^17.2.3",
         "express": "^5.1.0",
         "express-validator": "^7.3.0",
         "node-cache": "^5.1.2",
         "node-cleanup": "^2.1.2",
+        "nodemon": "^3.1.11",
         "pino": "^10.1.0",
+        "prisma": "^6.19.0",
         "qrcode": "^1.5.4"
     },
     "devDependencies": {

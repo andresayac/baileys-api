@@ -15,6 +15,8 @@ import makeWASocketModule, {
 import proto from 'baileys'
 
 import makeInMemoryStore from './store/memory-store.js'
+import makeDatabaseStore from './store/database-store.js'
+import { useDatabaseAuthState } from './store/database-auth-state.js'
 
 import { toDataURL } from 'qrcode'
 import __dirname from './dirname.js'
@@ -22,6 +24,7 @@ import response from './response.js'
 import { downloadImage } from './utils/download.js'
 import axios from 'axios'
 import NodeCache from 'node-cache'
+import prisma from './utils/prisma.js'
 
 const msgRetryCounterCache = new NodeCache()
 
@@ -29,6 +32,7 @@ const sessions = new Map()
 const retries = new Map()
 
 const APP_WEBHOOK_ALLOWED_EVENTS = process.env.APP_WEBHOOK_ALLOWED_EVENTS.split(',')
+const STORE_TYPE = process.env.STORE_TYPE || 'file'
 
 const sessionsDir = (sessionId = '') => {
     return join(__dirname, 'sessions', sessionId ? sessionId : '')
@@ -86,23 +90,33 @@ const createSession = async (sessionId, res = null, options = { usePairingCode: 
     const sessionFile = 'md_' + sessionId
 
     const logger = pino({ level: 'silent' })
-    const store = makeInMemoryStore({
-        preserveDataDuringSync: true,
-        backupBeforeSync: false,
-        incrementalSave: true,
-        maxMessagesPerChat: 150,
-        autoSaveInterval: 10000,
-        storeFile: sessionsDir(`${sessionId}_store.json`)
-    });
 
-    const { state, saveCreds } = await useMultiFileAuthState(sessionsDir(sessionFile))
+    let store
+    let state, saveCreds
+
+    if (STORE_TYPE === 'database') {
+        store = makeDatabaseStore(sessionId)
+        const authState = await useDatabaseAuthState(sessionId)
+        state = authState.state
+        saveCreds = authState.saveCreds
+    } else {
+        store = makeInMemoryStore({
+            preserveDataDuringSync: true,
+            backupBeforeSync: false,
+            incrementalSave: true,
+            maxMessagesPerChat: 150,
+            autoSaveInterval: 10000,
+            storeFile: sessionsDir(`${sessionId}_store.json`)
+        })
+        const authState = await useMultiFileAuthState(sessionsDir(sessionFile))
+        state = authState.state
+        saveCreds = authState.saveCreds
+        store?.readFromFile(sessionsDir(`${sessionId}_store.json`))
+    }
 
     // Fetch latest version of WA Web
     const { version, isLatest } = await fetchLatestBaileysVersion()
     console.log(`using WA v${version.join('.')}, isLatest: ${isLatest}`)
-
-    // Load store
-    store?.readFromFile(sessionsDir(`${sessionId}_store.json`))
 
     // Make both Node and Bun compatible
     const makeWASocket = makeWASocketModule.default ?? makeWASocketModule;
@@ -279,6 +293,21 @@ const createSession = async (sessionId, res = null, options = { usePairingCode: 
     })
 
     wa.ev.on('messaging-history.set', async (m) => {
+        const { chats, contacts, messages, isLatest } = m
+        console.log(`[History Sync] Received history sync - Chats: ${chats.length}, Contacts: ${contacts.length}, Messages: ${messages.length}, isLatest: ${isLatest}`)
+
+        // The store should handle these automatically if bound correctly
+        // But we can also manually trigger the events to ensure they're processed
+        if (chats.length > 0) {
+            wa.ev.emit('chats.set', { chats, isLatest })
+        }
+        if (contacts.length > 0) {
+            wa.ev.emit('contacts.set', { contacts })
+        }
+        if (messages.length > 0) {
+            wa.ev.emit('messages.set', { messages, isLatest })
+        }
+
         callWebhook(sessionId, 'MESSAGING_HISTORY_SET', m)
     })
 
@@ -389,22 +418,71 @@ const getListSessions = () => {
     return [...sessions.keys()]
 }
 
-const deleteSession = (sessionId) => {
+const deleteSession = async (sessionId) => {
     const sessionFile = 'md_' + sessionId
     const storeFile = `${sessionId}_store.json`
     const rmOptions = { force: true, recursive: true }
 
-    rmSync(sessionsDir(sessionFile), rmOptions)
-    rmSync(sessionsDir(storeFile), rmOptions)
+    if (STORE_TYPE === 'file') {
+        rmSync(sessionsDir(sessionFile), rmOptions)
+        rmSync(sessionsDir(storeFile), rmOptions)
+    } else {
+        // Delete from DB
+        try {
+            await prisma.session.deleteMany({
+                where: { sessionId }
+            })
+            await prisma.chat.deleteMany({
+                where: { sessionId }
+            })
+            await prisma.contact.deleteMany({
+                where: { sessionId }
+            })
+            await prisma.message.deleteMany({
+                where: { sessionId }
+            })
+        } catch (error) {
+            console.error('Error deleting session from DB:', error)
+        }
+    }
 
     sessions.delete(sessionId)
     retries.delete(sessionId)
 }
 
-const getChatList = (sessionId, isGroup = false) => {
+const getChatList = async (sessionId, isGroup = false, limit = 20, cursor = null) => {
     const filter = isGroup ? '@g.us' : '@s.whatsapp.net'
-    const chats = getSession(sessionId).store.chats
-    return [...chats.values()].filter(chat => chat.id.endsWith(filter))
+    let chats = []
+
+    if (STORE_TYPE === 'file') {
+        chats = [...getSession(sessionId).store.chats.values()]
+        chats = chats.filter(chat => chat.id.endsWith(filter))
+
+        // Simple pagination for file store
+        const startIndex = cursor ? parseInt(cursor) : 0
+        const paginatedChats = chats.slice(startIndex, startIndex + limit)
+        const hasMore = startIndex + limit < chats.length
+
+        return {
+            chats: paginatedChats,
+            nextCursor: hasMore ? (startIndex + limit).toString() : null,
+            hasMore
+        }
+    } else {
+        const result = await getSession(sessionId).store.chats.getAll(limit, cursor, filter)
+
+        // Convert BigInt to string for JSON serialization
+        result.chats = result.chats.map(chat => ({
+            ...chat,
+            conversationTimestamp: chat.conversationTimestamp ? Number(chat.conversationTimestamp) : null,
+            ephemeralSettingTimestamp: chat.ephemeralSettingTimestamp ? Number(chat.ephemeralSettingTimestamp) : null,
+            lastMsgTimestamp: chat.lastMsgTimestamp ? Number(chat.lastMsgTimestamp) : null,
+            muteEndTime: chat.muteEndTime ? Number(chat.muteEndTime) : null,
+            lastUpdated: chat.lastUpdated ? Number(chat.lastUpdated) : null
+        }))
+
+        return result
+    }
 }
 
 /**
@@ -499,7 +577,9 @@ const cleanup = () => {
     console.log('Running cleanup before exit.')
 
     sessions.forEach((session, sessionId) => {
-        session.store.writeToFile(sessionsDir(`${sessionId}_store.json`))
+        if (STORE_TYPE === 'file') {
+            session.store.writeToFile(sessionsDir(`${sessionId}_store.json`))
+        }
     })
 }
 
@@ -595,23 +675,36 @@ const convertToBase64 = (arrayBytes) => {
     return Buffer.from(byteArray).toString('base64')
 }
 
-const init = () => {
-    readdir(sessionsDir(), (err, files) => {
-        if (err) {
-            throw err
-        }
-
-        for (const file of files) {
-            if ((!file.startsWith('md_') && !file.startsWith('legacy_')) || file.endsWith('_store')) {
-                continue
+const init = async () => {
+    if (STORE_TYPE === 'file') {
+        readdir(sessionsDir(), (err, files) => {
+            if (err) {
+                throw err
             }
 
-            const filename = file.replace('.json', '')
-            const sessionId = filename.substring(3)
-            console.log('Recovering session: ' + sessionId)
+            for (const file of files) {
+                if ((!file.startsWith('md_') && !file.startsWith('legacy_')) || file.endsWith('_store')) {
+                    continue
+                }
+
+                const filename = file.replace('.json', '')
+                const sessionId = filename.substring(3)
+                console.log('Recovering session: ' + sessionId)
+                createSession(sessionId)
+            }
+        })
+    } else {
+        // Recover from DB
+        const sessions = await prisma.session.findMany({
+            select: { sessionId: true },
+            distinct: ['sessionId']
+        })
+
+        for (const { sessionId } of sessions) {
+            console.log('Recovering session from DB: ' + sessionId)
             createSession(sessionId)
         }
-    })
+    }
 }
 
 export {
