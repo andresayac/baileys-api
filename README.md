@@ -24,8 +24,8 @@ A production-ready RESTful API implementation of [@whiskeysockets/Baileys](https
 ### 1. Clone and Install
 
 ```bash
-git clone https://github.com/yourusername/baileys-whatsapp-api.git
-cd baileys-whatsapp-api
+git clone https://github.com/plusemon/baileys-api.git
+cd baileys-api
 npm install
 ```
 
@@ -447,7 +447,7 @@ npx prisma migrate reset
 ### Project Structure
 
 ```
-baileys-whatsapp-api/
+baileys-api/
 ├── controllers/          # API route controllers
 │   ├── sessionsController.js
 │   ├── chatsController.js
@@ -569,8 +569,8 @@ This project is open source and available under the [MIT License](LICENSE).
 
 ## 📞 Support
 
-- **Issues**: [GitHub Issues](https://github.com/yourusername/baileys-whatsapp-api/issues)
-- **Discussions**: [GitHub Discussions](https://github.com/yourusername/baileys-whatsapp-api/discussions)
+- **Issues**: [GitHub Issues](https://github.com/plusemon/baileys-api/issues)
+- **Discussions**: [GitHub Discussions](https://github.com/plusemon/baileys-api/discussions)
 
 ---
 
