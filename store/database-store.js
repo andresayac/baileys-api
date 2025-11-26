@@ -1,6 +1,6 @@
 import { BufferJSON, jidNormalizedUser, toNumber } from 'baileys'
 import prisma from '../utils/prisma.js'
-import logError from '../utils/logger.js'
+import logger from '../utils/logger.js'
 
 export default (sessionId) => {
     const bind = (ev) => {
@@ -94,7 +94,7 @@ export default (sessionId) => {
             })
             logger.info('[DB Store] Chat saved successfully:', chat.id)
         } catch (error) {
-            logError('DB Store - upsertChat', error)
+            logger('DB Store - upsertChat', error)
         }
     }
 
@@ -142,7 +142,7 @@ export default (sessionId) => {
             })
             logger.info('[DB Store] Chat updated/created successfully:', update.id)
         } catch (error) {
-            logError('DB Store - updateChat', error)
+            logger('DB Store - updateChat', error)
         }
     }
 
@@ -168,7 +168,7 @@ export default (sessionId) => {
                 }
             })
         } catch (error) {
-            logError('DB Store - upsertContact', error)
+            logger('DB Store - upsertContact', error)
         }
     }
 
@@ -194,8 +194,8 @@ export default (sessionId) => {
             ]
 
             // If it's a protocol message, check if it's a system message we should skip
-            if (messageType === 'protocolMessage') {
-                const protocolType = msg.message.protocolMessage?.type
+            if (protocolMessagesToSkip.includes(messageType)) {
+                const protocolType = msg.message?.protocolMessage?.type
                 const skipTypes = [
                     'HISTORY_SYNC_NOTIFICATION',
                     'APP_STATE_SYNC_KEY_SHARE',
@@ -241,7 +241,7 @@ export default (sessionId) => {
             })
             logger.info('[DB Store] Message saved successfully:', msg.key.id)
         } catch (error) {
-            logError('DB Store - upsertMessage', error)
+            logger('DB Store - upsertMessage', error)
         }
     }
 
@@ -262,7 +262,7 @@ export default (sessionId) => {
                 }
             })
         } catch (error) {
-            logError('DB Store - updateMessage', error)
+            logger('DB Store - updateMessage', error)
         }
     }
 
@@ -314,7 +314,7 @@ export default (sessionId) => {
                 status: msg.status
             })).reverse()
         } catch (error) {
-            logError('DB Store - loadMessages', error)
+            logger('DB Store - loadMessages', error)
             return []
         }
     }
