@@ -73,4 +73,14 @@ router.post(
     controller.downloadMedia
 )
 
+router.post(
+    '/download-media-buffer',
+    query('id').notEmpty(),
+    body('remoteJid').notEmpty(),
+    body('messageId').notEmpty(),
+    requestValidator,
+    sessionValidator,
+    controller.downloadMediaBuffer
+)
+
 export default router

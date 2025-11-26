@@ -7,6 +7,7 @@ import {
     formatGroup,
     readMessage,
     getMessageMedia,
+    getMessageBuffer,
     getStoreMessage,
 } from './../whatsapp.js'
 import response from './../response.js'
@@ -203,4 +204,25 @@ const downloadMedia = async (req, res) => {
     }
 }
 
-export { getList, send, sendBulk, deleteChat, read, forward, sendPresence, downloadMedia }
+const downloadMediaBuffer = async (req, res) => {
+    const session = getSession(res.locals.sessionId)
+    const { remoteJid, messageId } = req.body
+
+    try {
+        const message = await getStoreMessage(session, messageId, remoteJid)
+        const { buffer, mimetype, fileName } = await getMessageBuffer(session, message)
+
+        res.setHeader('Content-Type', mimetype)
+        res.setHeader('Content-Disposition', `attachment; filename="${fileName}"`)
+        res.send(buffer)
+    } catch {
+        response(
+            res,
+            500,
+            false,
+            'Error downloading multimedia message: it may not exist or may not contain multimedia content.',
+        )
+    }
+}
+
+export { getList, send, sendBulk, deleteChat, read, forward, sendPresence, downloadMedia, downloadMediaBuffer }

@@ -182,8 +182,9 @@ const createSession = async (sessionId, res = null, options = { usePairingCode: 
         callWebhook(sessionId, 'LABELS_EDIT', l)
     })
 
-    wa.ev.on('messages.upsert', async (m) => {
-        if (m.length > 0) {
+    wa.ev.on('messages.upsert', async ({ messages, type }) => {
+        logger.info('MESSAGES_UPSERT received', { length: messages.length, type })
+        if (messages.length > 0) {
             const messageTmp = await Promise.all(
                 messages.map(async (msg) => {
                     try {
@@ -232,7 +233,7 @@ const createSession = async (sessionId, res = null, options = { usePairingCode: 
                 }),
             )
 
-            callWebhook(sessionId, 'MESSAGES_UPSERT', messageTmp)
+            callWebhook(sessionId, 'MESSAGES_UPSERT', { messages: messageTmp, type })
         }
     })
 
@@ -631,7 +632,17 @@ const readMessage = async (session, keys) => {
 
 const getStoreMessage = async (session, messageId, remoteJid) => {
     try {
-        return await session.store.loadMessages(remoteJid, messageId)
+        // Load messages from the chat
+        const messages = await session.store.loadMessages(remoteJid, 100, null)
+
+        // Find the specific message by ID
+        const message = messages.find(msg => msg.key.id === messageId)
+
+        if (!message) {
+            throw new Error('Message not found')
+        }
+
+        return message
     } catch {
         // eslint-disable-next-line prefer-promise-reject-errors
         return Promise.reject(null)
@@ -660,6 +671,28 @@ const getMessageMedia = async (session, message) => {
             },
             mimetype: mediaMessage.mimetype,
             base64: buffer.toString('base64'),
+        }
+    } catch {
+        // eslint-disable-next-line prefer-promise-reject-errors
+        return Promise.reject(null)
+    }
+}
+
+const getMessageBuffer = async (session, message) => {
+    try {
+        const messageType = Object.keys(message.message)[0]
+        const mediaMessage = message.message[messageType]
+        const buffer = await downloadMediaMessage(
+            message,
+            'buffer',
+            {},
+            { reuploadRequest: session.updateMediaMessage },
+        )
+
+        return {
+            buffer,
+            fileName: mediaMessage.fileName ?? 'file',
+            mimetype: mediaMessage.mimetype,
         }
     } catch {
         // eslint-disable-next-line prefer-promise-reject-errors
@@ -734,6 +767,7 @@ export {
     init,
     isSessionConnected,
     getMessageMedia,
+    getMessageBuffer,
     getStoreMessage,
     blockAndUnblockUser,
 }
