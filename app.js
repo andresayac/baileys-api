@@ -4,6 +4,7 @@ import nodeCleanup from 'node-cleanup'
 import routes from './routes.js'
 import { init, cleanup } from './whatsapp.js'
 import cors from 'cors'
+import logger from './utils/logger.js'
 
 const app = express()
 
@@ -17,7 +18,7 @@ app.use('/', routes)
 
 const listenerCallback = () => {
     init()
-    console.log(`Server is listening on http://${host ? host : 'localhost'}:${port}`)
+    logger.info(`Server is listening on http://${host ? host : 'localhost'}:${port}`)
 }
 
 if (host) {

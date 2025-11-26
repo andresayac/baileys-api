@@ -5,21 +5,21 @@ import logError from '../utils/logger.js'
 export default (sessionId) => {
     const bind = (ev) => {
         ev.on('chats.set', async ({ chats }) => {
-            console.log('[DB Store] chats.set event received, count:', chats.length)
+            logger.info('[DB Store] chats.set event received, count:', chats.length)
             for (const chat of chats) {
                 await upsertChat(chat)
             }
         })
 
         ev.on('chats.upsert', async (chats) => {
-            console.log('[DB Store] chats.upsert event received, count:', chats.length)
+            logger.info('[DB Store] chats.upsert event received, count:', chats.length)
             for (const chat of chats) {
                 await upsertChat(chat)
             }
         })
 
         ev.on('chats.update', async (updates) => {
-            console.log('[DB Store] chats.update event received, count:', updates.length)
+            logger.info('[DB Store] chats.update event received, count:', updates.length)
             for (const update of updates) {
                 await updateChat(update)
             }
@@ -44,14 +44,14 @@ export default (sessionId) => {
         })
 
         ev.on('messages.upsert', async ({ messages, type }) => {
-            console.log('[DB Store] messages.upsert event received, count:', messages.length, 'type:', type)
+            logger.info('[DB Store] messages.upsert event received, count:', messages.length, 'type:', type)
             for (const msg of messages) {
                 await upsertMessage(msg)
             }
         })
 
         ev.on('messages.set', async ({ messages, isLatest }) => {
-            console.log('[DB Store] messages.set event received, count:', messages.length, 'isLatest:', isLatest)
+            logger.info('[DB Store] messages.set event received, count:', messages.length, 'isLatest:', isLatest)
             for (const msg of messages) {
                 await upsertMessage(msg)
             }
@@ -66,7 +66,7 @@ export default (sessionId) => {
 
     const upsertChat = async (chat) => {
         try {
-            console.log('[DB Store] Upserting chat:', chat.id)
+            logger.info('[DB Store] Upserting chat:', chat.id)
             await prisma.chat.upsert({
                 where: { sessionId_id: { sessionId, id: chat.id } },
                 create: {
@@ -92,7 +92,7 @@ export default (sessionId) => {
                     lastUpdated: BigInt(Date.now())
                 }
             })
-            console.log('[DB Store] Chat saved successfully:', chat.id)
+            logger.info('[DB Store] Chat saved successfully:', chat.id)
         } catch (error) {
             logError('DB Store - upsertChat', error)
         }
@@ -100,7 +100,7 @@ export default (sessionId) => {
 
     const updateChat = async (update) => {
         try {
-            console.log('[DB Store] Updating chat:', update.id)
+            logger.info('[DB Store] Updating chat:', update.id)
 
             // Extract only valid Chat fields
             const validFields = {
@@ -140,7 +140,7 @@ export default (sessionId) => {
                 },
                 update: validFields
             })
-            console.log('[DB Store] Chat updated/created successfully:', update.id)
+            logger.info('[DB Store] Chat updated/created successfully:', update.id)
         } catch (error) {
             logError('DB Store - updateChat', error)
         }
@@ -179,7 +179,7 @@ export default (sessionId) => {
                 data: update
             })
         } catch (error) {
-            // console.error('Error updating contact:', error)
+            logger.error('Error updating contact:', error)
         }
     }
 
@@ -204,12 +204,12 @@ export default (sessionId) => {
                 ]
 
                 if (skipTypes.includes(protocolType)) {
-                    console.log('[DB Store] Skipping protocol message:', protocolType)
+                    logger.info('[DB Store] Skipping protocol message:', protocolType)
                     return
                 }
             }
 
-            console.log('[DB Store] Upserting message:', msg.key.id, 'from:', msg.key.remoteJid)
+            logger.info('[DB Store] Upserting message:', msg.key.id, 'from:', msg.key.remoteJid)
             const remoteJid = jidNormalizedUser(msg.key.remoteJid)
             await prisma.message.upsert({
                 where: {
@@ -239,7 +239,7 @@ export default (sessionId) => {
                     message: JSON.stringify(msg.message, BufferJSON.replacer)
                 }
             })
-            console.log('[DB Store] Message saved successfully:', msg.key.id)
+            logger.info('[DB Store] Message saved successfully:', msg.key.id)
         } catch (error) {
             logError('DB Store - upsertMessage', error)
         }
@@ -268,7 +268,7 @@ export default (sessionId) => {
 
     const loadMessages = async (jid, count, cursor) => {
         try {
-            console.log('[DB Store] Loading messages for:', jid, 'count:', count, 'cursor:', cursor)
+            logger.info('[DB Store] Loading messages for:', jid, 'count:', count, 'cursor:', cursor)
 
             const queryOptions = {
                 where: {

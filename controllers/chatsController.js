@@ -54,11 +54,13 @@ const send = async (req, res) => {
             }
         }
 
-        await sendMessage(session, receiver, message, {}, 0)
+        const result = await sendMessage(session, receiver, message, {}, 0)
 
-        response(res, 200, true, 'The message has been successfully sent.')
-    } catch {
-        response(res, 500, false, 'Failed to send the message.')
+        response(res, 200, true, 'The message has been successfully sent.', {
+            message: result,
+        })
+    } catch (error) {
+        response(res, 500, false, 'Failed to send the message.', error)
     }
 }
 

@@ -56,7 +56,7 @@ class ConcurrentStore extends EventEmitter {
         // **Intelligent auto-save that preserves data**
         if (this.config.autoSaveInterval > 0) {
             this.autoSaveTimer = setInterval(() => {
-                this.smartAutoSave().catch(console.error);
+                this.smartAutoSave().catch(logger.error);
             }, this.config.autoSaveInterval);
         }
     }
@@ -66,7 +66,7 @@ class ConcurrentStore extends EventEmitter {
         // Do not save if we are in the middle of a heavy synchronization
         if (this.isProcessingHistory && this.syncStartTime &&
             (Date.now() - this.syncStartTime) < 30000) { // First 30 seconds of sync
-            // console.log('⏳ Skipping auto-save during initial sync phase');
+            logger.info('⏳ Skipping auto-save during initial sync phase');
             return;
         }
 
@@ -102,11 +102,11 @@ class ConcurrentStore extends EventEmitter {
             if (this.config.backupBeforeSync) {
                 const backupFile = `${this.config.storeFile}.backup`;
                 await this.writeToFileInternal(backupFile, await this.serializeStoreData());
-                console.log('💾 Created backup before sync');
+                logger.info('💾 Created backup before sync');
             }
 
         } catch (error) {
-            console.error('❌ Error creating backup:', error);
+            logger.error('❌ Error creating backup:', error);
         }
     }
 
@@ -115,7 +115,7 @@ class ConcurrentStore extends EventEmitter {
         if (!this.config.preserveDataDuringSync || !this.hasBackupData()) return;
 
         try {
-            console.log('🔄 Restoring from backup...');
+            logger.log('🔄 Restoring from backup...');
 
             this.chats = new Map(this.backupData.chats);
             this.contacts = new Map(this.backupData.contacts);
@@ -128,10 +128,10 @@ class ConcurrentStore extends EventEmitter {
             }
 
             this.updateStats();
-            // console.log('✅ Restored from backup successfully');
+            logger.log('✅ Restored from backup successfully');
 
         } catch (error) {
-            // console.error('❌ Error restoring from backup:', error);
+            logger.error('❌ Error restoring from backup:', error);
         }
     }
 
@@ -153,7 +153,7 @@ class ConcurrentStore extends EventEmitter {
         } = historyData;
 
         if (syncType === 6) {
-            // console.log(`📱 On-demand history sync: ${newMessages.length} messages`);
+            // logger.log(`📱 On-demand history sync: ${newMessages.length} messages`);
             return;
         }
 
@@ -166,20 +166,20 @@ class ConcurrentStore extends EventEmitter {
             // **Create backup of existing data**
             if (this.hasInitialData) {
                 await this.createBackup();
-                // console.log('🔒 Data backed up before sync');
+                // logger.log('🔒 Data backed up before sync');
             }
         }
 
         try {
-            // console.log(`🔄 Processing history: ${newChats.length} chats, ${newContacts.length} contacts, ${newMessages.length} messages (${progress}%)`);
+            // logger.log(`🔄 Processing history: ${newChats.length} chats, ${newContacts.length} contacts, ${newMessages.length} messages (${progress}%)`);
 
             // **Solo limpiar si realmente tenemos datos nuevos significativos**
             if (isLatest && (newChats.length > 10 || newMessages.length > 100)) {
-                // console.log('🧹 Clearing for latest sync with significant data...');
+                // logger.log('🧹 Clearing for latest sync with significant data...');
                 this.chats.clear();
                 this.messages.clear();
             } else if (isLatest && this.hasInitialData) {
-                // console.log('⚠️ Latest sync but keeping existing data (small dataset)');
+                // logger.log('⚠️ Latest sync but keeping existing data (small dataset)');
             }
 
             // **Process new data**
@@ -203,11 +203,11 @@ class ConcurrentStore extends EventEmitter {
             this.updateStats();
 
             const processingTime = Date.now() - this.syncStartTime;
-            // console.log(`✅ History batch processed in ${processingTime}ms`);
+            // logger.log(`✅ History batch processed in ${processingTime}ms`);
 
             if (this.config.incrementalSave && this.hasValidData() && processingTime > 5000) {
                 await this.writeToFile();
-                // console.log('💾 Incremental save completed');
+                // logger.log('💾 Incremental save completed');
             }
 
             this.emit('store.history-processed', {
@@ -221,7 +221,7 @@ class ConcurrentStore extends EventEmitter {
             });
 
         } catch (error) {
-            // console.error('❌ Error processing history set:', error);
+            // logger.error('❌ Error processing history set:', error);
 
             // **Restore from backup in case of error**
             if (this.hasInitialData) {
@@ -241,24 +241,24 @@ class ConcurrentStore extends EventEmitter {
     async finalizeSyncProcess() {
         try {
             const totalTime = Date.now() - this.syncStartTime;
-            console.log(`🏁 Sync process completed in ${totalTime}ms`);
+            logger.log(`🏁 Sync process completed in ${totalTime}ms`);
 
             // **Final save only if we have valid data**
             if (this.hasValidData()) {
                 await this.writeToFile();
-                // console.log('💾 Final save completed');
+                // logger.log('💾 Final save completed');
             } else if (this.hasBackupData()) {
                 // If we do not have valid data, restore backup
                 await this.restoreFromBackup();
                 await this.writeToFile();
-                // console.log('🔄 Restored and saved backup data');
+                // logger.log('🔄 Restored and saved backup data');
             }
 
             // **Clean up backup**
             this.clearBackup();
 
         } catch (error) {
-            // console.error('❌ Error finalizing sync:', error);
+            // logger.error('❌ Error finalizing sync:', error);
         } finally {
             this.isProcessingHistory = false;
             this.syncStartTime = null;
@@ -281,7 +281,7 @@ class ConcurrentStore extends EventEmitter {
 
         // **Do not write if we do not have valid data**
         if (!this.hasValidData()) {
-            // console.log('⚠️ Skipping write - no valid data to save');
+            // logger.log('⚠️ Skipping write - no valid data to save');
             return;
         }
 
@@ -302,7 +302,7 @@ class ConcurrentStore extends EventEmitter {
             });
 
         } catch (error) {
-            // console.error('❌ Failed to write store:', error.message);
+            // logger.error('❌ Failed to write store:', error.message);
             this.emit('store.error', error);
         } finally {
             this.isWriting = false;
@@ -352,24 +352,24 @@ class ConcurrentStore extends EventEmitter {
 
             const stats = await fs.stat(file).catch(() => null);
             if (!stats) {
-                // console.log('📄 No existing store file found');
+                // logger.log('📄 No existing store file found');
                 return;
             }
 
             // **Verify that the file is not empty**
             if (stats.size < 10) {
-                // console.log('⚠️ Store file is empty or corrupted, checking backup...');
+                // logger.log('⚠️ Store file is empty or corrupted, checking backup...');
 
                 // Try loading from backup
                 const backupFile = `${file}.backup`;
                 const backupStats = await fs.stat(backupFile).catch(() => null);
 
                 if (backupStats && backupStats.size > 10) {
-                    // console.log('🔄 Loading from backup file...');
+                    // logger.log('🔄 Loading from backup file...');
                     return await this.readFromFile(backupFile);
                 }
 
-                // console.log('❌ No valid backup found');
+                // logger.log('❌ No valid backup found');
                 return;
             }
 
@@ -377,7 +377,7 @@ class ConcurrentStore extends EventEmitter {
 
             // **Verify that the content is not empty**
             if (!raw.trim()) {
-                // console.log('⚠️ Store file content is empty');
+                // logger.log('⚠️ Store file content is empty');
                 return;
             }
 
@@ -392,12 +392,12 @@ class ConcurrentStore extends EventEmitter {
             this.stats.lastSave = new Date();
             this.hasInitialData = true;
 
-            // console.log(`✅ Store loaded: ${this.stats.totalChats} chats, ${this.stats.totalMessages} messages, ${this.stats.totalContacts} contacts`);
+            // logger.log(`✅ Store loaded: ${this.stats.totalChats} chats, ${this.stats.totalMessages} messages, ${this.stats.totalContacts} contacts`);
 
             this.emit('store.loaded', { file, size: stats.size });
 
         } catch (error) {
-            // console.error('❌ Failed to read store:', error.message);
+            // logger.error('❌ Failed to read store:', error.message);
             this.emit('store.error', error);
         } finally {
             this.releaseWriteLock('file');
@@ -428,7 +428,7 @@ class ConcurrentStore extends EventEmitter {
         }
 
         if (processed > 0) {
-            console.log(`📋 Processed ${processed} chats`);
+            logger.log(`📋 Processed ${processed} chats`);
         }
     }
 
@@ -443,7 +443,7 @@ class ConcurrentStore extends EventEmitter {
                 try {
                     const jid = jidNormalizedUser(contact.id);
 
-                    if (!isLidUser(contact.lid)) continue;     
+                    if (!isLidUser(contact.lid)) continue;
 
                     this.contacts.set(jid, {
                         ...contact,
@@ -461,7 +461,7 @@ class ConcurrentStore extends EventEmitter {
         }
 
         if (processed > 0) {
-            console.log(`👥 Processed ${processed} contacts`);
+            logger.log(`👥 Processed ${processed} contacts`);
         }
     }
 
@@ -489,7 +489,7 @@ class ConcurrentStore extends EventEmitter {
         }
 
         // if (processed > 0) {
-        //     console.log(`💬 Processed ${processed} messages`);
+        //     logger.log(`💬 Processed ${processed} messages`);
         // }
     }
 
@@ -538,7 +538,7 @@ class ConcurrentStore extends EventEmitter {
                     type
                 })), type);
             } catch (error) {
-                console.error('Error processing messages.upsert:', error);
+                logger.error('Error processing messages.upsert:', error);
             }
         });
 
@@ -546,7 +546,7 @@ class ConcurrentStore extends EventEmitter {
             try {
                 await this.processHistorySet(historyData);
             } catch (error) {
-                console.error('Error processing messaging-history.set:', error);
+                logger.error('Error processing messaging-history.set:', error);
                 this.emit('store.error', error);
             }
         });
@@ -560,7 +560,7 @@ class ConcurrentStore extends EventEmitter {
                     await this.upsertChat(chat);
                 }
             } catch (error) {
-                console.error('Error processing chats.upsert:', error);
+                logger.error('Error processing chats.upsert:', error);
             }
         });
 
@@ -570,7 +570,7 @@ class ConcurrentStore extends EventEmitter {
                     await this.updateChat(update);
                 }
             } catch (error) {
-                console.error('Error processing chats.update:', error);
+                logger.error('Error processing chats.update:', error);
             }
         });
 
@@ -580,7 +580,7 @@ class ConcurrentStore extends EventEmitter {
                     await this.upsertChat(chat);
                 }
             } catch (error) {
-                console.error('Error processing chats.set:', error);
+                logger.error('Error processing chats.set:', error);
             }
         });
 
@@ -592,7 +592,7 @@ class ConcurrentStore extends EventEmitter {
                 }
                 this.updateStats();
             } catch (error) {
-                // console.error('Error processing chats.delete:', error);
+                // logger.error('Error processing chats.delete:', error);
             }
         });
 
@@ -600,7 +600,7 @@ class ConcurrentStore extends EventEmitter {
             try {
                 await this.processContactsUpsert(newContacts);
             } catch (error) {
-                // console.error('Error processing contacts.upsert:', error);
+                // logger.error('Error processing contacts.upsert:', error);
             }
         });
 
@@ -610,7 +610,7 @@ class ConcurrentStore extends EventEmitter {
                     await this.updateGroupMetadata(update);
                 }
             } catch (error) {
-                // console.error('Error processing groups.update:', error);
+                // logger.error('Error processing groups.update:', error);
             }
         });
     }
@@ -650,7 +650,7 @@ class ConcurrentStore extends EventEmitter {
 
                 processed++;
             } catch (error) {
-                console.error('Error processing contact:', contact.id, error);
+                logger.error('Error processing contact:', contact.id, error);
             }
         }
 
@@ -840,7 +840,7 @@ class ConcurrentStore extends EventEmitter {
             await this.updateGroupMetadata(metadata);
             return metadata;
         } catch (err) {
-            // console.error('Failed to fetch group metadata:', err.message);
+            // logger.error('Failed to fetch group metadata:', err.message);
             return null;
         }
     }

@@ -25,6 +25,7 @@ import { downloadImage } from './utils/download.js'
 import axios from 'axios'
 import NodeCache from 'node-cache'
 import prisma from './utils/prisma.js'
+import logger from './utils/logger.js'
 
 const msgRetryCounterCache = new NodeCache()
 
@@ -53,8 +54,7 @@ const shouldReconnect = (sessionId) => {
     // MaxRetries = maxRetries < 1 ? 1 : maxRetries
     if (attempts < maxRetries || maxRetries === -1) {
         ++attempts
-
-        console.log('Reconnecting...', { attempts, sessionId })
+        logger.info('Reconnecting...', { attempts, sessionId })
         retries.set(sessionId, attempts)
 
         return true
@@ -63,18 +63,18 @@ const shouldReconnect = (sessionId) => {
     return false
 }
 
-const callWebhook = async (instance, eventType, eventData) => {
-    if (APP_WEBHOOK_ALLOWED_EVENTS.includes('ALL') || APP_WEBHOOK_ALLOWED_EVENTS.includes(eventType)) {
-        await webhook(instance, eventType, eventData)
+const callWebhook = async (sessionId, event, data) => {
+    if (APP_WEBHOOK_ALLOWED_EVENTS.includes('ALL') || APP_WEBHOOK_ALLOWED_EVENTS.includes(event)) {
+        await webhook(sessionId, event, data)
     }
 }
 
-const webhook = async (instance, type, data) => {
+const webhook = async (sessionId, event, data) => {
     if (process.env.APP_WEBHOOK_URL) {
         axios
             .post(`${process.env.APP_WEBHOOK_URL}`, {
-                instance,
-                type,
+                sessionId,
+                event,
                 data,
             })
             .then((success) => {
@@ -116,7 +116,8 @@ const createSession = async (sessionId, res = null, options = { usePairingCode: 
 
     // Fetch latest version of WA Web
     const { version, isLatest } = await fetchLatestBaileysVersion()
-    console.log(`using WA v${version.join('.')}, isLatest: ${isLatest}`)
+
+    logger.info(`using WA v${version.join('.')}, isLatest: ${isLatest}`)
 
     // Make both Node and Bun compatible
     const makeWASocket = makeWASocketModule.default ?? makeWASocketModule;
@@ -181,12 +182,8 @@ const createSession = async (sessionId, res = null, options = { usePairingCode: 
         callWebhook(sessionId, 'LABELS_EDIT', l)
     })
 
-    // Automatically read incoming messages, uncomment below codes to enable this behaviour
     wa.ev.on('messages.upsert', async (m) => {
-        const messages = m.messages.filter((m) => {
-            return m.key.fromMe === false
-        })
-        if (messages.length > 0) {
+        if (m.length > 0) {
             const messageTmp = await Promise.all(
                 messages.map(async (msg) => {
                     try {
@@ -294,7 +291,7 @@ const createSession = async (sessionId, res = null, options = { usePairingCode: 
 
     wa.ev.on('messaging-history.set', async (m) => {
         const { chats, contacts, messages, isLatest } = m
-        console.log(`[History Sync] Received history sync - Chats: ${chats.length}, Contacts: ${contacts.length}, Messages: ${messages.length}, isLatest: ${isLatest}`)
+        logger.info(`[History Sync] Received history sync - Chats: ${chats.length}, Contacts: ${contacts.length}, Messages: ${messages.length}, isLatest: ${isLatest}`)
 
         // The store should handle these automatically if bound correctly
         // But we can also manually trigger the events to ensure they're processed
@@ -442,7 +439,7 @@ const deleteSession = async (sessionId) => {
                 where: { sessionId }
             })
         } catch (error) {
-            console.error('Error deleting session from DB:', error)
+            logger.error('Error deleting session from DB:', error)
         }
     }
 
@@ -574,7 +571,7 @@ const formatGroup = (group) => {
 }
 
 const cleanup = () => {
-    console.log('Running cleanup before exit.')
+    logger.info('Running cleanup before exit.')
 
     sessions.forEach((session, sessionId) => {
         if (STORE_TYPE === 'file') {
@@ -689,7 +686,7 @@ const init = async () => {
 
                 const filename = file.replace('.json', '')
                 const sessionId = filename.substring(3)
-                console.log('Recovering session: ' + sessionId)
+                logger.info('Recovering session: ' + sessionId)
                 createSession(sessionId)
             }
         })
@@ -701,7 +698,7 @@ const init = async () => {
         })
 
         for (const { sessionId } of sessions) {
-            console.log('Recovering session from DB: ' + sessionId)
+            logger.info('Recovering session from DB: ' + sessionId)
             createSession(sessionId)
         }
     }

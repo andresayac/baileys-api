@@ -21,7 +21,7 @@ export const useDatabaseAuthState = async (sessionId) => {
                 }
             })
         } catch (error) {
-            console.error('Error writing session data:', error)
+            logger.error('Error writing session data:', error)
         }
     }
 
@@ -39,7 +39,7 @@ export const useDatabaseAuthState = async (sessionId) => {
                 return JSON.parse(session.data, BufferJSON.reviver)
             }
         } catch (error) {
-            console.error('Error reading session data:', error)
+            logger.error('Error reading session data:', error)
             return null
         }
     }
