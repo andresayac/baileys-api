@@ -259,12 +259,16 @@ export default (sessionId) => {
                 ]
 
                 if (skipTypes.includes(protocolType)) {
-                    logger.info('[DB Store] Skipping protocol message:', protocolType)
+                    logger.debug('[DB Store] Skipping protocol message:', protocolType)
                     return
                 }
             }
 
-            logger.info('[DB Store] Upserting message:', msg.key.id, 'from:', msg.key.remoteJid)
+            logger.debug('[DB Store] Upserting message:', {
+                messageId: msg.key.id,
+                remoteJid: msg.key.remoteJid
+            })
+
             // console.log('Full message object:', JSON.stringify(msg, null, 2))
             let remoteJid = jidNormalizedUser(msg.key.remoteJid)
 
@@ -307,7 +311,10 @@ export default (sessionId) => {
                     message: JSON.stringify(msg.message, BufferJSON.replacer)
                 }
             })
-            logger.info('[DB Store] Message saved successfully:', msg.key.id)
+            logger.debug('[DB Store] Message saved successfully:', {
+                messageId: msg.key.id,
+                remoteJid: msg.key.remoteJid
+            })
         } catch (error) {
             logger.info('DB Store - upsertMessage', error)
         }
@@ -330,7 +337,7 @@ export default (sessionId) => {
                 }
             })
         } catch (error) {
-            logger.info('DB Store - updateMessage', error)
+            logger.error('[DB Store] Error updating message:', error)
         }
     }
 
