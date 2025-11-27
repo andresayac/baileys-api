@@ -1,6 +1,11 @@
-import { BufferJSON, jidNormalizedUser, toNumber } from 'baileys'
-import prisma from '../utils/prisma.js'
+import {
+    BufferJSON,
+    jidNormalizedUser,
+    toNumber,
+} from 'baileys'
+
 import logger from '../utils/logger.js'
+import prisma from '../utils/prisma.js'
 
 export default (sessionId) => {
     const bind = (ev) => {
@@ -94,7 +99,7 @@ export default (sessionId) => {
             })
             logger.info('[DB Store] Chat saved successfully:', chat.id)
         } catch (error) {
-            logger('DB Store - upsertChat', error)
+            logger.info('DB Store - upsertChat', error)
         }
     }
 
@@ -142,12 +147,13 @@ export default (sessionId) => {
             })
             logger.info('[DB Store] Chat updated/created successfully:', update.id)
         } catch (error) {
-            logger('DB Store - updateChat', error)
+            logger.info('DB Store - updateChat', error)
         }
     }
 
     const upsertContact = async (contact) => {
         try {
+            logger.info('[DB Store] Upserting contact:', JSON.stringify(contact))
             await prisma.contact.upsert({
                 where: { sessionId_id: { sessionId, id: contact.id } },
                 create: {
@@ -168,12 +174,13 @@ export default (sessionId) => {
                 }
             })
         } catch (error) {
-            logger('DB Store - upsertContact', error)
+            logger.info('DB Store - upsertContact', error)
         }
     }
 
     const updateContact = async (update) => {
         try {
+            logger.info('[DB Store] Updating contact:', JSON.stringify(update))
             // Extract only valid Contact fields
             const validFields = {
                 name: update.name,
@@ -233,6 +240,7 @@ export default (sessionId) => {
             }
 
             logger.info('[DB Store] Upserting message:', msg.key.id, 'from:', msg.key.remoteJid)
+            // console.log('Full message object:', JSON.stringify(msg, null, 2))
             const remoteJid = jidNormalizedUser(msg.key.remoteJid)
             await prisma.message.upsert({
                 where: {
@@ -264,7 +272,7 @@ export default (sessionId) => {
             })
             logger.info('[DB Store] Message saved successfully:', msg.key.id)
         } catch (error) {
-            logger('DB Store - upsertMessage', error)
+            logger.info('DB Store - upsertMessage', error)
         }
     }
 
@@ -285,7 +293,7 @@ export default (sessionId) => {
                 }
             })
         } catch (error) {
-            logger('DB Store - updateMessage', error)
+            logger.info('DB Store - updateMessage', error)
         }
     }
 
@@ -337,7 +345,7 @@ export default (sessionId) => {
                 status: msg.status
             })).reverse()
         } catch (error) {
-            logger('DB Store - loadMessages', error)
+            logger.info('DB Store - loadMessages', error)
             return []
         }
     }
