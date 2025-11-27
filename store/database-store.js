@@ -174,10 +174,33 @@ export default (sessionId) => {
 
     const updateContact = async (update) => {
         try {
-            await prisma.contact.update({
+            // Extract only valid Contact fields
+            const validFields = {
+                name: update.name,
+                notify: update.notify,
+                verifiedName: update.verifiedName,
+                imgUrl: update.imgUrl,
+                status: update.status
+            }
+
+            // Remove undefined values
+            Object.keys(validFields).forEach(key => validFields[key] === undefined && delete validFields[key])
+
+            // Use upsert instead of update to handle cases where contact doesn't exist yet
+            await prisma.contact.upsert({
                 where: { sessionId_id: { sessionId, id: update.id } },
-                data: update
+                create: {
+                    sessionId,
+                    id: update.id,
+                    name: update.name,
+                    notify: update.notify,
+                    verifiedName: update.verifiedName,
+                    imgUrl: update.imgUrl,
+                    status: update.status
+                },
+                update: validFields
             })
+            logger.info('[DB Store] Contact updated/created successfully:', update.id)
         } catch (error) {
             logger.error('Error updating contact:', error)
         }

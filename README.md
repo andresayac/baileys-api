@@ -297,7 +297,32 @@ Content-Type: application/json
 }
 ```
 
+#### Mark Conversation as Read
+
+Mark all messages in a conversation as read and reset the unread count:
+
+```bash
+POST /chats/mark-as-read?id=my-session
+Content-Type: application/json
+
+{
+  "jid": "1234567890@s.whatsapp.net"
+}
+```
+
+**Response:**
+```json
+{
+  "success": true,
+  "message": "The conversation has been successfully marked as read.",
+  "data": {
+    "markedCount": 15
+  }
+}
+```
+
 #### Send Presence Update
+
 
 ```bash
 POST /chats/send-presence?id=my-session

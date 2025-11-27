@@ -630,6 +630,42 @@ const readMessage = async (session, keys) => {
     return session.readMessages(keys)
 }
 
+const readConversation = async (sessionId, jid) => {
+    try {
+        const session = getSession(sessionId)
+
+        // Load recent messages from the chat
+        const messages = await session.store.loadMessages(jid, 100, null)
+
+        // Filter unread messages (messages not from me)
+        const unreadMessages = messages.filter(msg => !msg.key.fromMe)
+
+        if (unreadMessages.length > 0) {
+            // Mark all unread messages as read
+            const keys = unreadMessages.map(msg => msg.key)
+            await session.readMessages(keys)
+        }
+
+        // Update unreadCount in database if using database store
+        if (STORE_TYPE === 'database') {
+            await prisma.chat.updateMany({
+                where: {
+                    sessionId,
+                    id: jid
+                },
+                data: {
+                    unreadCount: 0
+                }
+            })
+        }
+
+        return { success: true, markedCount: unreadMessages.length }
+    } catch (error) {
+        logger.error('Error marking conversation as read:', error)
+        throw error
+    }
+}
+
 const getStoreMessage = async (session, messageId, remoteJid) => {
     try {
         // Load messages from the chat
@@ -764,6 +800,7 @@ export {
     acceptInvite,
     profilePicture,
     readMessage,
+    readConversation,
     init,
     isSessionConnected,
     getMessageMedia,

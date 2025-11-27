@@ -6,6 +6,7 @@ import {
     formatPhone,
     formatGroup,
     readMessage,
+    readConversation,
     getMessageMedia,
     getMessageBuffer,
     getStoreMessage,
@@ -170,6 +171,21 @@ const read = async (req, res) => {
     }
 }
 
+const markConversationAsRead = async (req, res) => {
+    const sessionId = res.locals.sessionId
+    const { jid } = req.body
+
+    try {
+        const result = await readConversation(sessionId, jid)
+
+        response(res, 200, true, 'The conversation has been successfully marked as read.', {
+            markedCount: result.markedCount
+        })
+    } catch (error) {
+        response(res, 500, false, 'Failed to mark the conversation as read.')
+    }
+}
+
 const sendPresence = async (req, res) => {
     const session = getSession(res.locals.sessionId)
     const { receiver, isGroup, presence } = req.body
@@ -225,4 +241,4 @@ const downloadMediaBuffer = async (req, res) => {
     }
 }
 
-export { getList, send, sendBulk, deleteChat, read, forward, sendPresence, downloadMedia, downloadMediaBuffer }
+export { getList, send, sendBulk, deleteChat, read, markConversationAsRead, forward, sendPresence, downloadMedia, downloadMediaBuffer }

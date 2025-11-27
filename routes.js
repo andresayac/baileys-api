@@ -21,7 +21,7 @@ router.use('/groups', groupsRoute)
 router.use('/misc', miscRoute)
 
 router.use((req, res) => {
-  response(res, 404, false, 'The requested url cannot be found.')
+  response(res, 404, false, '404 Not Found')
 })
 
 export default router
