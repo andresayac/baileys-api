@@ -128,12 +128,37 @@ export default (sessionId) => {
             // Remove undefined values
             Object.keys(validFields).forEach(key => validFields[key] === undefined && delete validFields[key])
 
+            let updateId = update.id
+
+            // check if updateId is lid then resolve it from update.messages[0].message.key.remoteJid/remoteJidAlt (where includes @s.whatsapp.net)
+            if (updateId.endsWith('@lid')) {
+                logger.debug('[DB Store] Resolving lid:', updateId)
+
+                let key = update.messages?.[0]?.message?.key
+
+                // check if update.messages[0].message.key.remoteJid or update.messages[0].message.key.remoteJidAlt includes @s.whatsapp.net
+                if (key?.remoteJid?.includes('@s.whatsapp.net')) {
+                    updateId = key?.remoteJid
+                    logger.debug('[DB Store] Resolved lid to remoteJid:', updateId)
+                } else if (key?.remoteJidAlt?.includes('@s.whatsapp.net')) {
+                    updateId = key?.remoteJidAlt
+                    logger.debug('[DB Store] Resolved lid to remoteJidAlt:', updateId)
+                } else {
+                    logger.debug('[DB Store] Failed to resolve lid mapping:', {
+                        updateId,
+                        messages: update.messages,
+                        remoteJid: update.messages?.[0]?.message?.key?.remoteJid,
+                        remoteJidAlt: update.messages?.[0]?.message?.key?.remoteJidAlt
+                    })
+                }
+            }
+
             // Use upsert instead of update to handle cases where chat doesn't exist yet
             await prisma.chat.upsert({
-                where: { sessionId_id: { sessionId, id: update.id } },
+                where: { sessionId_id: { sessionId, id: updateId } },
                 create: {
                     sessionId,
-                    id: update.id,
+                    id: updateId,
                     conversationTimestamp: update.conversationTimestamp ? toNumber(update.conversationTimestamp) : null,
                     unreadCount: update.unreadCount || 0,
                     name: update.name,
@@ -147,7 +172,7 @@ export default (sessionId) => {
             })
             logger.info('[DB Store] Chat updated/created successfully:', update.id)
         } catch (error) {
-            logger.info('DB Store - updateChat', error)
+            logger.error('[DB Store] Error updating chat:', error)
         }
     }
 
@@ -241,7 +266,19 @@ export default (sessionId) => {
 
             logger.info('[DB Store] Upserting message:', msg.key.id, 'from:', msg.key.remoteJid)
             // console.log('Full message object:', JSON.stringify(msg, null, 2))
-            const remoteJid = jidNormalizedUser(msg.key.remoteJid)
+            let remoteJid = jidNormalizedUser(msg.key.remoteJid)
+
+            // check if remoteJid contains @lid 
+            if (remoteJid.includes('@lid')) {
+                logger.debug('[DB Store] RemoteJid contains @lid:', remoteJid)
+                // now try to get jid from remoteJidAlt if contains @s.whatsapp.net
+                let remoteJidAlt = msg.key.remoteJidAlt
+                if (remoteJidAlt.includes('@s.whatsapp.net')) {
+                    remoteJid = remoteJidAlt
+                    logger.debug('[DB Store] RemoteJid resolved from remoteJidAlt:', remoteJid)
+                }
+            }
+
             await prisma.message.upsert({
                 where: {
                     sessionId_remoteJid_id: {
