@@ -1,0 +1,76 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "mysql"
+  url      = env("DATABASE_URL")
+}
+
+model Session {
+  pkId      Int      @id @default(autoincrement())
+  sessionId String
+  id        String
+  data      String   @db.LongText
+
+  @@unique([sessionId, id], map: "unique_id_per_session_id_1")
+  @@index([sessionId])
+}
+
+model Chat {
+  pkId                  Int      @id @default(autoincrement())
+  sessionId             String
+  id                    String
+  conversationTimestamp BigInt?
+  unreadCount           Int?
+  readOnly              Boolean? @default(false)
+  endOfHistoryTransfer  Boolean? @default(false)
+  ephemeralExpiration   Int?
+  ephemeralSettingTimestamp BigInt?
+  disappearingMode      String?
+  lastMsgTimestamp      BigInt?
+  name                  String?
+  notSpam               Boolean? @default(false)
+  archived              Boolean? @default(false)
+  pinned                Int?
+  muteEndTime           BigInt?
+  lastUpdated           BigInt?
+
+  @@unique([sessionId, id], map: "unique_id_per_session_id_2")
+  @@index([sessionId])
+}
+
+model Message {
+  pkId         Int      @id @default(autoincrement())
+  sessionId    String
+  remoteJid    String
+  id           String
+  agentId      String?
+  chatId       String?
+  fromMe       Boolean?
+  pushName     String?
+  broadcast    Boolean?
+  message      Json?
+  messageType  String?
+  messageTimestamp BigInt?
+  participant  String?
+  status       String?
+  reaction     String?
+
+  @@unique([sessionId, remoteJid, id])
+  @@index([sessionId])
+}
+
+model Contact {
+  pkId         Int      @id @default(autoincrement())
+  sessionId    String
+  id           String
+  name         String?
+  notify       String?
+  verifiedName String?
+  imgUrl       String?
+  status       String?
+
+  @@unique([sessionId, id], map: "unique_id_per_session_id_3")
+  @@index([sessionId])
+}

@@ -6,14 +6,24 @@ import {
     formatPhone,
     formatGroup,
     readMessage,
+    readConversation,
     getMessageMedia,
+    getMessageBuffer,
     getStoreMessage,
 } from './../whatsapp.js'
 import response from './../response.js'
 import { compareAndFilter, fileExists, isUrlValid } from './../utils/functions.js'
 
-const getList = (req, res) => {
-    return response(res, 200, true, '', getChatList(res.locals.sessionId))
+const getList = async (req, res) => {
+    const { limit = 20, cursor = null } = req.query
+    const sessionId = res.locals.sessionId
+
+    try {
+        const result = await getChatList(sessionId, false, parseInt(limit), cursor)
+        return response(res, 200, true, '', result)
+    } catch (error) {
+        return response(res, 500, false, 'Failed to load chats.')
+    }
 }
 
 const send = async (req, res) => {
@@ -46,11 +56,13 @@ const send = async (req, res) => {
             }
         }
 
-        await sendMessage(session, receiver, message, {}, 0)
+        const result = await sendMessage(session, receiver, message, {}, 0)
 
-        response(res, 200, true, 'The message has been successfully sent.')
-    } catch {
-        response(res, 500, false, 'Failed to send the message.')
+        response(res, 200, true, 'The message has been successfully sent.', {
+            message: result,
+        })
+    } catch (error) {
+        response(res, 500, false, 'Failed to send the message.', error)
     }
 }
 
@@ -125,7 +137,7 @@ const forward = async (req, res) => {
     try {
         const messages = await session.store.loadMessages(remoteJid, 25, null)
 
-        
+
         const key = [...messages.values()].filter((element) => {
             return element.key.id === id
         })
@@ -156,6 +168,21 @@ const read = async (req, res) => {
         response(res, 200, true, 'The message has been successfully marked as read.')
     } catch {
         response(res, 500, false, 'Failed to mark the message as read.')
+    }
+}
+
+const markConversationAsRead = async (req, res) => {
+    const sessionId = res.locals.sessionId
+    const { jid } = req.body
+
+    try {
+        const result = await readConversation(sessionId, jid)
+
+        response(res, 200, true, 'The conversation has been successfully marked as read.', {
+            markedCount: result.markedCount
+        })
+    } catch (error) {
+        response(res, 500, false, 'Failed to mark the conversation as read.')
     }
 }
 
@@ -193,4 +220,25 @@ const downloadMedia = async (req, res) => {
     }
 }
 
-export { getList, send, sendBulk, deleteChat, read, forward, sendPresence, downloadMedia }
+const downloadMediaBuffer = async (req, res) => {
+    const session = getSession(res.locals.sessionId)
+    const { remoteJid, messageId } = req.body
+
+    try {
+        const message = await getStoreMessage(session, messageId, remoteJid)
+        const { buffer, mimetype, fileName } = await getMessageBuffer(session, message)
+
+        res.setHeader('Content-Type', mimetype)
+        res.setHeader('Content-Disposition', `attachment; filename="${fileName}"`)
+        res.send(buffer)
+    } catch {
+        response(
+            res,
+            500,
+            false,
+            'Error downloading multimedia message: it may not exist or may not contain multimedia content.',
+        )
+    }
+}
+
+export { getList, send, sendBulk, deleteChat, read, markConversationAsRead, forward, sendPresence, downloadMedia, downloadMediaBuffer }

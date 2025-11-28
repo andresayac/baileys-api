@@ -54,6 +54,15 @@ router.post(
 )
 
 router.post(
+    '/mark-as-read',
+    query('id').notEmpty(),
+    body('jid').notEmpty(),
+    requestValidator,
+    sessionValidator,
+    controller.markConversationAsRead
+)
+
+router.post(
     '/send-presence',
     query('id').notEmpty(),
     body('receiver').notEmpty(),
@@ -71,6 +80,16 @@ router.post(
     requestValidator,
     sessionValidator,
     controller.downloadMedia
+)
+
+router.post(
+    '/download-media-buffer',
+    query('id').notEmpty(),
+    body('remoteJid').notEmpty(),
+    body('messageId').notEmpty(),
+    requestValidator,
+    sessionValidator,
+    controller.downloadMediaBuffer
 )
 
 export default router

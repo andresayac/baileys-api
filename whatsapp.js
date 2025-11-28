@@ -15,6 +15,8 @@ import makeWASocketModule, {
 import proto from 'baileys'
 
 import makeInMemoryStore from './store/memory-store.js'
+import makeDatabaseStore from './store/database-store.js'
+import { useDatabaseAuthState } from './store/database-auth-state.js'
 
 import { toDataURL } from 'qrcode'
 import __dirname from './dirname.js'
@@ -22,6 +24,8 @@ import response from './response.js'
 import { downloadImage } from './utils/download.js'
 import axios from 'axios'
 import NodeCache from 'node-cache'
+import prisma from './utils/prisma.js'
+import logger from './utils/logger.js'
 
 const msgRetryCounterCache = new NodeCache()
 
@@ -29,6 +33,7 @@ const sessions = new Map()
 const retries = new Map()
 
 const APP_WEBHOOK_ALLOWED_EVENTS = process.env.APP_WEBHOOK_ALLOWED_EVENTS.split(',')
+const STORE_TYPE = process.env.STORE_TYPE || 'file'
 
 const sessionsDir = (sessionId = '') => {
     return join(__dirname, 'sessions', sessionId ? sessionId : '')
@@ -49,8 +54,7 @@ const shouldReconnect = (sessionId) => {
     // MaxRetries = maxRetries < 1 ? 1 : maxRetries
     if (attempts < maxRetries || maxRetries === -1) {
         ++attempts
-
-        console.log('Reconnecting...', { attempts, sessionId })
+        logger.info('Reconnecting...', { attempts, sessionId })
         retries.set(sessionId, attempts)
 
         return true
@@ -59,18 +63,18 @@ const shouldReconnect = (sessionId) => {
     return false
 }
 
-const callWebhook = async (instance, eventType, eventData) => {
-    if (APP_WEBHOOK_ALLOWED_EVENTS.includes('ALL') || APP_WEBHOOK_ALLOWED_EVENTS.includes(eventType)) {
-        await webhook(instance, eventType, eventData)
+const callWebhook = async (sessionId, event, data) => {
+    if (APP_WEBHOOK_ALLOWED_EVENTS.includes('ALL') || APP_WEBHOOK_ALLOWED_EVENTS.includes(event)) {
+        await webhook(sessionId, event, data)
     }
 }
 
-const webhook = async (instance, type, data) => {
+const webhook = async (sessionId, event, data) => {
     if (process.env.APP_WEBHOOK_URL) {
         axios
             .post(`${process.env.APP_WEBHOOK_URL}`, {
-                instance,
-                type,
+                sessionId,
+                event,
                 data,
             })
             .then((success) => {
@@ -86,23 +90,34 @@ const createSession = async (sessionId, res = null, options = { usePairingCode: 
     const sessionFile = 'md_' + sessionId
 
     const logger = pino({ level: 'silent' })
-    const store = makeInMemoryStore({
-        preserveDataDuringSync: true,
-        backupBeforeSync: false,
-        incrementalSave: true,
-        maxMessagesPerChat: 150,
-        autoSaveInterval: 10000,
-        storeFile: sessionsDir(`${sessionId}_store.json`)
-    });
 
-    const { state, saveCreds } = await useMultiFileAuthState(sessionsDir(sessionFile))
+    let store
+    let state, saveCreds
+
+    if (STORE_TYPE === 'database') {
+        store = makeDatabaseStore(sessionId)
+        const authState = await useDatabaseAuthState(sessionId)
+        state = authState.state
+        saveCreds = authState.saveCreds
+    } else {
+        store = makeInMemoryStore({
+            preserveDataDuringSync: true,
+            backupBeforeSync: false,
+            incrementalSave: true,
+            maxMessagesPerChat: 150,
+            autoSaveInterval: 10000,
+            storeFile: sessionsDir(`${sessionId}_store.json`)
+        })
+        const authState = await useMultiFileAuthState(sessionsDir(sessionFile))
+        state = authState.state
+        saveCreds = authState.saveCreds
+        store?.readFromFile(sessionsDir(`${sessionId}_store.json`))
+    }
 
     // Fetch latest version of WA Web
     const { version, isLatest } = await fetchLatestBaileysVersion()
-    console.log(`using WA v${version.join('.')}, isLatest: ${isLatest}`)
 
-    // Load store
-    store?.readFromFile(sessionsDir(`${sessionId}_store.json`))
+    logger.info(`using WA v${version.join('.')}, isLatest: ${isLatest}`)
 
     // Make both Node and Bun compatible
     const makeWASocket = makeWASocketModule.default ?? makeWASocketModule;
@@ -167,11 +182,8 @@ const createSession = async (sessionId, res = null, options = { usePairingCode: 
         callWebhook(sessionId, 'LABELS_EDIT', l)
     })
 
-    // Automatically read incoming messages, uncomment below codes to enable this behaviour
-    wa.ev.on('messages.upsert', async (m) => {
-        const messages = m.messages.filter((m) => {
-            return m.key.fromMe === false
-        })
+    wa.ev.on('messages.upsert', async ({ messages, type }) => {
+        logger.info('MESSAGES_UPSERT received', { length: messages.length, type })
         if (messages.length > 0) {
             const messageTmp = await Promise.all(
                 messages.map(async (msg) => {
@@ -221,7 +233,7 @@ const createSession = async (sessionId, res = null, options = { usePairingCode: 
                 }),
             )
 
-            callWebhook(sessionId, 'MESSAGES_UPSERT', messageTmp)
+            callWebhook(sessionId, 'MESSAGES_UPSERT', { messages: messageTmp, type })
         }
     })
 
@@ -279,6 +291,21 @@ const createSession = async (sessionId, res = null, options = { usePairingCode: 
     })
 
     wa.ev.on('messaging-history.set', async (m) => {
+        const { chats, contacts, messages, isLatest } = m
+        logger.info(`[History Sync] Received history sync - Chats: ${chats.length}, Contacts: ${contacts.length}, Messages: ${messages.length}, isLatest: ${isLatest}`)
+
+        // The store should handle these automatically if bound correctly
+        // But we can also manually trigger the events to ensure they're processed
+        if (chats.length > 0) {
+            wa.ev.emit('chats.set', { chats, isLatest })
+        }
+        if (contacts.length > 0) {
+            wa.ev.emit('contacts.set', { contacts })
+        }
+        if (messages.length > 0) {
+            wa.ev.emit('messages.set', { messages, isLatest })
+        }
+
         callWebhook(sessionId, 'MESSAGING_HISTORY_SET', m)
     })
 
@@ -389,22 +416,71 @@ const getListSessions = () => {
     return [...sessions.keys()]
 }
 
-const deleteSession = (sessionId) => {
+const deleteSession = async (sessionId) => {
     const sessionFile = 'md_' + sessionId
     const storeFile = `${sessionId}_store.json`
     const rmOptions = { force: true, recursive: true }
 
-    rmSync(sessionsDir(sessionFile), rmOptions)
-    rmSync(sessionsDir(storeFile), rmOptions)
+    if (STORE_TYPE === 'file') {
+        rmSync(sessionsDir(sessionFile), rmOptions)
+        rmSync(sessionsDir(storeFile), rmOptions)
+    } else {
+        // Delete from DB
+        try {
+            await prisma.session.deleteMany({
+                where: { sessionId }
+            })
+            await prisma.chat.deleteMany({
+                where: { sessionId }
+            })
+            await prisma.contact.deleteMany({
+                where: { sessionId }
+            })
+            await prisma.message.deleteMany({
+                where: { sessionId }
+            })
+        } catch (error) {
+            logger.error('Error deleting session from DB:', error)
+        }
+    }
 
     sessions.delete(sessionId)
     retries.delete(sessionId)
 }
 
-const getChatList = (sessionId, isGroup = false) => {
+const getChatList = async (sessionId, isGroup = false, limit = 20, cursor = null) => {
     const filter = isGroup ? '@g.us' : '@s.whatsapp.net'
-    const chats = getSession(sessionId).store.chats
-    return [...chats.values()].filter(chat => chat.id.endsWith(filter))
+    let chats = []
+
+    if (STORE_TYPE === 'file') {
+        chats = [...getSession(sessionId).store.chats.values()]
+        chats = chats.filter(chat => chat.id.endsWith(filter))
+
+        // Simple pagination for file store
+        const startIndex = cursor ? parseInt(cursor) : 0
+        const paginatedChats = chats.slice(startIndex, startIndex + limit)
+        const hasMore = startIndex + limit < chats.length
+
+        return {
+            chats: paginatedChats,
+            nextCursor: hasMore ? (startIndex + limit).toString() : null,
+            hasMore
+        }
+    } else {
+        const result = await getSession(sessionId).store.chats.getAll(limit, cursor, filter)
+
+        // Convert BigInt to string for JSON serialization
+        result.chats = result.chats.map(chat => ({
+            ...chat,
+            conversationTimestamp: chat.conversationTimestamp ? Number(chat.conversationTimestamp) : null,
+            ephemeralSettingTimestamp: chat.ephemeralSettingTimestamp ? Number(chat.ephemeralSettingTimestamp) : null,
+            lastMsgTimestamp: chat.lastMsgTimestamp ? Number(chat.lastMsgTimestamp) : null,
+            muteEndTime: chat.muteEndTime ? Number(chat.muteEndTime) : null,
+            lastUpdated: chat.lastUpdated ? Number(chat.lastUpdated) : null
+        }))
+
+        return result
+    }
 }
 
 /**
@@ -496,10 +572,12 @@ const formatGroup = (group) => {
 }
 
 const cleanup = () => {
-    console.log('Running cleanup before exit.')
+    logger.info('Running cleanup before exit.')
 
     sessions.forEach((session, sessionId) => {
-        session.store.writeToFile(sessionsDir(`${sessionId}_store.json`))
+        if (STORE_TYPE === 'file') {
+            session.store.writeToFile(sessionsDir(`${sessionId}_store.json`))
+        }
     })
 }
 
@@ -552,9 +630,55 @@ const readMessage = async (session, keys) => {
     return session.readMessages(keys)
 }
 
+const readConversation = async (sessionId, jid) => {
+    try {
+        const session = getSession(sessionId)
+
+        // Load recent messages from the chat
+        const messages = await session.store.loadMessages(jid, 100, null)
+
+        // Filter unread messages (messages not from me)
+        const unreadMessages = messages.filter(msg => !msg.key.fromMe)
+
+        if (unreadMessages.length > 0) {
+            // Mark all unread messages as read
+            const keys = unreadMessages.map(msg => msg.key)
+            await session.readMessages(keys)
+        }
+
+        // Update unreadCount in database if using database store
+        if (STORE_TYPE === 'database') {
+            await prisma.chat.updateMany({
+                where: {
+                    sessionId,
+                    id: jid
+                },
+                data: {
+                    unreadCount: 0
+                }
+            })
+        }
+
+        return { success: true, markedCount: unreadMessages.length }
+    } catch (error) {
+        logger.error('Error marking conversation as read:', error)
+        throw error
+    }
+}
+
 const getStoreMessage = async (session, messageId, remoteJid) => {
     try {
-        return await session.store.loadMessages(remoteJid, messageId)
+        // Load messages from the chat
+        const messages = await session.store.loadMessages(remoteJid, 100, null)
+
+        // Find the specific message by ID
+        const message = messages.find(msg => msg.key.id === messageId)
+
+        if (!message) {
+            throw new Error('Message not found')
+        }
+
+        return message
     } catch {
         // eslint-disable-next-line prefer-promise-reject-errors
         return Promise.reject(null)
@@ -590,28 +714,63 @@ const getMessageMedia = async (session, message) => {
     }
 }
 
+const getMessageBuffer = async (session, message) => {
+    try {
+        const messageType = Object.keys(message.message)[0]
+        const mediaMessage = message.message[messageType]
+        const buffer = await downloadMediaMessage(
+            message,
+            'buffer',
+            {},
+            { reuploadRequest: session.updateMediaMessage },
+        )
+
+        return {
+            buffer,
+            fileName: mediaMessage.fileName ?? 'file',
+            mimetype: mediaMessage.mimetype,
+        }
+    } catch {
+        // eslint-disable-next-line prefer-promise-reject-errors
+        return Promise.reject(null)
+    }
+}
+
 const convertToBase64 = (arrayBytes) => {
     const byteArray = new Uint8Array(arrayBytes)
     return Buffer.from(byteArray).toString('base64')
 }
 
-const init = () => {
-    readdir(sessionsDir(), (err, files) => {
-        if (err) {
-            throw err
-        }
-
-        for (const file of files) {
-            if ((!file.startsWith('md_') && !file.startsWith('legacy_')) || file.endsWith('_store')) {
-                continue
+const init = async () => {
+    if (STORE_TYPE === 'file') {
+        readdir(sessionsDir(), (err, files) => {
+            if (err) {
+                throw err
             }
 
-            const filename = file.replace('.json', '')
-            const sessionId = filename.substring(3)
-            console.log('Recovering session: ' + sessionId)
+            for (const file of files) {
+                if ((!file.startsWith('md_') && !file.startsWith('legacy_')) || file.endsWith('_store')) {
+                    continue
+                }
+
+                const filename = file.replace('.json', '')
+                const sessionId = filename.substring(3)
+                logger.info('Recovering session: ' + sessionId)
+                createSession(sessionId)
+            }
+        })
+    } else {
+        // Recover from DB
+        const sessions = await prisma.session.findMany({
+            select: { sessionId: true },
+            distinct: ['sessionId']
+        })
+
+        for (const { sessionId } of sessions) {
+            logger.info('Recovering session from DB: ' + sessionId)
             createSession(sessionId)
         }
-    })
+    }
 }
 
 export {
@@ -641,9 +800,11 @@ export {
     acceptInvite,
     profilePicture,
     readMessage,
+    readConversation,
     init,
     isSessionConnected,
     getMessageMedia,
+    getMessageBuffer,
     getStoreMessage,
     blockAndUnblockUser,
 }
